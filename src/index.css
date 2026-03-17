@@ -235,6 +235,7 @@ label {
 .badge.deleted { background-color: #fee2e2; color: #b91c1c; }
 .badge.init { background-color: #fef3c7; color: #047857; }
 .badge.accepted { background-color: #d1fae5; color: #065f46; }
+.badge.returned { background-color: #dbeafe; color: #1d4ed8; }
 .badge.cancelled { background-color: #f1f5f9; color: #475569; }
 
 /* Utilities */

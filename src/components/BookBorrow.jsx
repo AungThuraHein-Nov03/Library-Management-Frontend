@@ -178,6 +178,7 @@ export default function BookBorrow() {
                   <span className={`badge ${
                     borrow.status === 'INIT' ? 'init' : 
                     borrow.status === 'ACCEPTED' ? 'accepted' : 
+                    borrow.status === 'RETURNED' ? 'returned' :
                     borrow.status.includes('CANCEL') || borrow.status.includes('CLOSE') ? 'deleted' : ''
                   }`}>
                     {borrow.status}
@@ -195,7 +196,10 @@ export default function BookBorrow() {
                   {borrow.status === "INIT" && user.role === "USER" && (
                     <button className="danger" onClick={() => handleStatusUpdate(borrow._id, "CANCEL-USER")}>Cancel Request</button>
                   )}
-                  {borrow.status !== "INIT" && <span style={{ color: "#9ca3af" }}>—</span>}
+                  {borrow.status === "ACCEPTED" && user.role === "ADMIN" && (
+                    <button className="secondary" onClick={() => handleStatusUpdate(borrow._id, "RETURNED")}>Returned</button>
+                  )}
+                  {borrow.status !== "INIT" && !(borrow.status === "ACCEPTED" && user.role === "ADMIN") && <span style={{ color: "#9ca3af" }}>—</span>}
                 </td>
               </tr>
             ))}
