@@ -8,15 +8,20 @@ export function BookDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  
+  const [coverPreview, setCoverPreview] = useState(null);
+  const [coverUrl, setCoverUrl] = useState("");
+  const [coverPositionX, setCoverPositionX] = useState(50);
+  const [coverPositionY, setCoverPositionY] = useState(50);
+
   const API_URL = import.meta.env.VITE_API_URL;
-  
+
   const titleRef = useRef();
   const authorRef = useRef();
   const descriptionRef = useRef();
   const quantityRef = useRef();
   const availableRef = useRef();
   const locationRef = useRef();
+  const coverRef = useRef();
 
   const fetchBook = async () => {
     try {
@@ -27,6 +32,10 @@ export function BookDetail() {
       if (response.ok) {
         const data = await response.json();
         setBook(data);
+        setCoverPreview(data.coverImage ? `${API_URL}${data.coverImage}` : null);
+        setCoverUrl(data.coverImage || "");
+        setCoverPositionX(Number.isFinite(Number(data.coverPositionX)) ? Number(data.coverPositionX) : 50);
+        setCoverPositionY(Number.isFinite(Number(data.coverPositionY)) ? Number(data.coverPositionY) : 50);
       } else if (response.status === 404) {
         setError("Book not found");
       } else {
@@ -48,13 +57,44 @@ export function BookDetail() {
     setError("");
     setMessage("");
 
+    let currentCoverUrl = coverUrl;
+
+    // Upload new cover if one was selected
+    if (coverRef.current?.files?.[0]) {
+      const formData = new FormData();
+      formData.append("cover", coverRef.current.files[0]);
+      try {
+        const uploadRes = await fetch(`${API_URL}/api/books/${id}/cover`, {
+          method: "POST",
+          credentials: "include",
+          body: formData
+        });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          currentCoverUrl = uploadData.url;
+          setCoverUrl(currentCoverUrl);
+          setCoverPreview(`${API_URL}${currentCoverUrl}`);
+        } else {
+          const errData = await uploadRes.json();
+          setError(errData.message || "Error uploading cover");
+          return;
+        }
+      } catch (err) {
+        setError("Error uploading cover");
+        return;
+      }
+    }
+
     const updateData = {
       title: titleRef.current.value,
       author: authorRef.current.value,
       description: descriptionRef.current.value,
       quantity: parseInt(quantityRef.current.value),
       available: parseInt(availableRef.current.value),
-      location: locationRef.current.value
+      location: locationRef.current.value,
+      coverImage: currentCoverUrl,
+      coverPositionX,
+      coverPositionY
     };
 
     try {
@@ -123,6 +163,38 @@ export function BookDetail() {
   if (loading) return <div>Loading book details...</div>;
   if (error && !book) return <div style={{ color: "#ef4444", padding: "1rem", backgroundColor: "#fee2e2", borderRadius: "8px" }}>{error}</div>;
 
+  const handleCoverSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setCoverPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleRemoveCover = async () => {
+    if (!coverUrl) return;
+    try {
+      const response = await fetch(`${API_URL}/api/books/${id}/cover`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.message || "Error removing cover");
+        return;
+      }
+
+      setCoverPreview(null);
+      setCoverUrl("");
+      setCoverPositionX(50);
+      setCoverPositionY(50);
+      setMessage("Cover removed successfully");
+      if (coverRef.current) coverRef.current.value = "";
+    } catch (err) {
+      setError("Error removing cover");
+    }
+  };
+
   return (
     <div className="card" style={{ maxWidth: "800px" }}>
       <div className="flex justify-between items-center mb-4">
@@ -161,6 +233,47 @@ export function BookDetail() {
           <div className="mb-4">
             <label>Description</label>
             <textarea ref={descriptionRef} defaultValue={book.description} rows="3" />
+          </div>
+
+          <div className="mb-4">
+            <label>Book Cover</label>
+            <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
+              {coverPreview && (
+                <img
+                  src={coverPreview}
+                  alt="Cover preview"
+                  style={{ width: "120px", height: "160px", objectFit: "cover", objectPosition: `${coverPositionX}% ${coverPositionY}%`, borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                />
+              )}
+              <div>
+                <input type="file" ref={coverRef} accept="image/jpeg,image/png,image/webp" onChange={handleCoverSelect} style={{ fontSize: "0.9rem" }} />
+                {coverPreview && (
+                  <div style={{ marginTop: "0.75rem", minWidth: "240px" }}>
+                    <label style={{ display: "block", marginBottom: "0.25rem", fontSize: "0.85rem" }}>Horizontal Focus: {Math.round(coverPositionX)}%</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={coverPositionX}
+                      onChange={(e) => setCoverPositionX(Number(e.target.value))}
+                    />
+                    <label style={{ display: "block", marginTop: "0.5rem", marginBottom: "0.25rem", fontSize: "0.85rem" }}>Vertical Focus: {Math.round(coverPositionY)}%</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={coverPositionY}
+                      onChange={(e) => setCoverPositionY(Number(e.target.value))}
+                    />
+                  </div>
+                )}
+                {coverUrl && (
+                  <button type="button" className="danger" onClick={handleRemoveCover} style={{ marginTop: "0.5rem", fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}>
+                    Remove Cover
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-4 mb-4">
