@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useUser } from "../contexts/UserProvider";
 import { Link, useSearchParams } from "react-router-dom";
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString();
+}
 
 export default function BookBorrow() {
   const [borrows, setBorrows] = useState([]);
@@ -15,43 +22,70 @@ export default function BookBorrow() {
   
   const API_URL = import.meta.env.VITE_API_URL;
 
-  const fetchBorrows = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/borrow`, {
-        method: "GET",
-        credentials: "include"
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setBorrows(data);
-      }
-    } catch (err) {
-      setError("Error fetching borrow requests");
-    }
-  };
+  const fetchBorrows = useCallback(async () => {
+    const response = await fetch(`${API_URL}/api/borrow`, {
+      method: "GET",
+      credentials: "include"
+    });
 
-  const fetchBooks = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/books`, {
-        method: "GET",
-        credentials: "include"
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setBooks(data);
-      }
-    } catch (err) {
-      console.error("Error fetching books");
+    if (!response.ok) {
+      throw new Error("Error fetching borrow requests");
     }
-  };
+
+    return response.json();
+  }, [API_URL]);
+
+  const fetchBooks = useCallback(async () => {
+    const response = await fetch(`${API_URL}/api/books`, {
+      method: "GET",
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      throw new Error("Error fetching books");
+    }
+
+    return response.json();
+  }, [API_URL]);
+
+  const refreshData = useCallback(async () => {
+    const [borrowData, bookData] = await Promise.all([fetchBorrows(), fetchBooks()]);
+    setBorrows(borrowData);
+    setBooks(bookData);
+  }, [fetchBorrows, fetchBooks]);
 
   useEffect(() => {
-    Promise.all([fetchBorrows(), fetchBooks()]).then(() => {
-      setLoading(false);
-      const bookId = searchParams.get("bookId");
-      if (bookId) setSelectedBook(bookId);
-    });
-  }, []);
+    let isMounted = true;
+
+    const loadInitialData = async () => {
+      try {
+        const [borrowData, bookData] = await Promise.all([fetchBorrows(), fetchBooks()]);
+        if (!isMounted) return;
+
+        setBorrows(borrowData);
+        setBooks(bookData);
+
+        const bookId = searchParams.get("bookId");
+        if (bookId) {
+          setSelectedBook(bookId);
+        }
+      } catch {
+        if (isMounted) {
+          setError("Error fetching borrow requests");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchBooks, fetchBorrows, searchParams]);
 
   const handleBorrowRequest = async (e) => {
     e.preventDefault();
@@ -80,13 +114,12 @@ export default function BookBorrow() {
         setMessage("Borrow request submitted successfully");
         setSelectedBook("");
         setTargetDate("");
-        fetchBorrows();
-        fetchBooks();
+        await refreshData();
       } else {
         const data = await response.json();
         setError(data.message || "Error creating borrow request");
       }
-    } catch (err) {
+    } catch {
       setError("Error creating borrow request");
     }
   };
@@ -106,13 +139,12 @@ export default function BookBorrow() {
       if (response.ok) {
         const data = await response.json();
         setMessage(data.message);
-        fetchBorrows();
-        fetchBooks();
+        await refreshData();
       } else {
         const data = await response.json();
         setError(data.message || "Error updating status");
       }
-    } catch (err) {
+    } catch {
       setError("Error updating status");
     }
   };
@@ -132,6 +164,9 @@ export default function BookBorrow() {
       {user.role === "USER" && (
         <div className="card mb-4" style={{ maxWidth: "600px", marginLeft: 0 }}>
           <h3 style={{ marginBottom: "1rem" }}>Request a Book</h3>
+          <p style={{ color: "#64748b", marginBottom: "1rem", fontSize: "0.9rem" }}>
+            Due dates are assigned when an admin accepts your request.
+          </p>
           <form onSubmit={handleBorrowRequest}>
             <div className="form-group">
               <label>Select a Book</label>
@@ -165,7 +200,7 @@ export default function BookBorrow() {
               {user.role === "ADMIN" && <th>User</th>}
               <th>Status</th>
               <th>Created At</th>
-              <th>Target Date</th>
+              <th>Due Date</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -178,14 +213,24 @@ export default function BookBorrow() {
                   <span className={`badge ${
                     borrow.status === 'INIT' ? 'init' : 
                     borrow.status === 'ACCEPTED' ? 'accepted' : 
+                    borrow.status === 'OVERDUE' ? 'overdue' :
                     borrow.status === 'RETURNED' ? 'returned' :
                     borrow.status.includes('CANCEL') || borrow.status.includes('CLOSE') ? 'deleted' : ''
                   }`}>
                     {borrow.status}
                   </span>
+                  {borrow.isOverdue && borrow.overdueDays > 0 && (
+                    <div style={{ marginTop: "0.25rem", fontSize: "0.8rem", color: "#b91c1c" }}>
+                      {borrow.overdueDays} day{borrow.overdueDays > 1 ? "s" : ""} overdue
+                    </div>
+                  )}
                 </td>
                 <td>{new Date(borrow.createdAt).toLocaleString()}</td>
-                <td>{borrow.targetDate ? new Date(borrow.targetDate).toLocaleDateString() : "—"}</td>
+                <td>
+                  {borrow.dueDate ? formatDate(borrow.dueDate) : (
+                    borrow.status === "INIT" ? "Pending acceptance" : "-"
+                  )}
+                </td>
                 <td>
                   {borrow.status === "INIT" && user.role === "ADMIN" && (
                     <div className="flex gap-2">
@@ -196,10 +241,10 @@ export default function BookBorrow() {
                   {borrow.status === "INIT" && user.role === "USER" && (
                     <button className="danger" onClick={() => handleStatusUpdate(borrow._id, "CANCEL-USER")}>Cancel Request</button>
                   )}
-                  {borrow.status === "ACCEPTED" && user.role === "ADMIN" && (
+                  {(borrow.status === "ACCEPTED" || borrow.status === "OVERDUE") && user.role === "ADMIN" && (
                     <button className="secondary" onClick={() => handleStatusUpdate(borrow._id, "RETURNED")}>Returned</button>
                   )}
-                  {borrow.status !== "INIT" && !(borrow.status === "ACCEPTED" && user.role === "ADMIN") && <span style={{ color: "#9ca3af" }}>—</span>}
+                  {borrow.status !== "INIT" && !((borrow.status === "ACCEPTED" || borrow.status === "OVERDUE") && user.role === "ADMIN") && <span style={{ color: "#9ca3af" }}>—</span>}
                 </td>
               </tr>
             ))}
